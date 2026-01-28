@@ -3,18 +3,33 @@ import { useEffect, useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image as RNImage } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../lib/api';
+import { api, apiClient, API_BASE_URL } from '../../lib/api';
 import { useAuth } from '../../hooks/useAuth';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { Audio } from 'expo-av';
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams();
   const conversationId = Number(id);
   const { user } = useAuth();
+  const { initiateCall } = useWebSocket();
   const queryClient = useQueryClient();
   const flatListRef = useRef<FlatList>(null);
+  
   const [inputText, setInputText] = useState('');
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [playingId, setPlayingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, [sound]);
 
   // Fetch Conversation Details
   const { data: conversation } = useQuery({
@@ -28,7 +43,6 @@ export default function ChatScreen() {
     queryKey: ['messages', conversationId],
     queryFn: () => api.getMessages(conversationId),
     enabled: !!conversationId,
-    refetchInterval: 2000, // Poll every 2s
   });
 
   // Send Message Mutation
@@ -44,24 +58,130 @@ export default function ChatScreen() {
     },
   });
 
+  // --- Voice Recording Logic ---
+  async function startRecording() {
+    try {
+      const perm = await Audio.requestPermissionsAsync();
+      if (perm.status === 'granted') {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        });
+
+        // Use standard preset
+        const { recording } = await Audio.Recording.createAsync(
+            Audio.RecordingOptionsPresets.HIGH_QUALITY
+        );
+        setRecording(recording);
+      } else {
+        Alert.alert('Permission Denied', 'Microphone permission is required to record voice notes.');
+      }
+    } catch (err: any) {
+      Alert.alert('Failed to start recording', err?.message);
+    }
+  }
+
+  async function stopRecording() {
+    if (!recording) return;
+    try {
+        setRecording(null);
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI(); 
+        if (uri) {
+          uploadVoiceNote(uri);
+        }
+    } catch (error) {
+        console.error("Stop recording failed", error);
+    }
+  }
+
+  const uploadVoiceNote = async (uri: string) => {
+    const formData = new FormData();
+    const filename = uri.split('/').pop() || 'voice.m4a';
+    // Mime type usually audio/m4a for iOS/Android recordings
+    const type = 'audio/m4a';
+    
+    // @ts-ignore
+    formData.append('file', { uri, name: filename, type });
+
+    try {
+        const res = await apiClient.post('/api/upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        const { url } = res.data;
+        
+        // We need to send as explicit type. api.sendMessage only handles text defaulting to 'text'
+        // So we call endpoint directly or add method. Using direct call for now.
+        await apiClient.post(`/api/conversations/${conversationId}/messages`, {
+            content: 'Voice Message',
+            type: 'audio',
+            metadata: { url, duration: 0 } // Todo: get duration
+        });
+        queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+    } catch (err) {
+        Alert.alert('Upload Failed', 'Could not send voice note');
+        console.error(err);
+    }
+  };
+
+  const handlePlayAudio = async (url: string, id: number) => {
+      if (playingId === id) {
+          // Stop if currently playing
+          if (sound) await sound.stopAsync();
+          setPlayingId(null);
+          return;
+      }
+
+      // Stop previous
+      if (sound) {
+          await sound.unloadAsync();
+      }
+
+      // Fix Relative URL for Mobile
+      const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+      console.log('Playing sound:', fullUrl);
+      
+      try {
+          const { sound: newSound } = await Audio.Sound.createAsync(
+              { uri: fullUrl },
+              { shouldPlay: true }
+          );
+          setSound(newSound);
+          setPlayingId(id);
+
+          newSound.setOnPlaybackStatusUpdate((status) => {
+              if (status.isLoaded && status.didJustFinish) {
+                  setPlayingId(null);
+              }
+          });
+      } catch (error) {
+          Alert.alert("Playback Error", "Could not play audio file.");
+          console.error(error);
+      }
+  };
+
   const handleSend = () => {
     if (!inputText.trim()) return;
     sendMessageMutation.mutate(inputText);
   };
 
   const handleCall = (type: 'voice' | 'video') => {
-    Alert.alert('Coming Soon', `${type === 'voice' ? 'Voice' : 'Video'} calls will be supported soon.`);
-    // api.initiateCall(targetId, type)...
+    // Identify target - For DIRECT chats, it's the other person.
+    const target = conversation?.participants?.find((p: any) => p.identityId !== user?.id);
+    if (!target) {
+        Alert.alert("Error", "Cannot find user to call.");
+        return;
+    }
+    initiateCall(target.identityId, type);
   };
 
-  const renderMessage = ({ item, index }: { item: any, index: number }) => {
-    const isMe = item.senderIdentityId === user?.id; // Assuming user.id maps to identityId roughly or we need a proper check
-    // In real app, user object might be the User table, but messages use Identity ID. 
-    // We might need to fetch "Me" identity to be sure.
-    // For now, let's assume the API returns `isMe` or we infer it. 
-    // Actually, `api.getMe()` returns the current identity. We should use that.
 
+  const renderMessage = ({ item, index }: { item: any, index: number }) => {
+    const isMe = item.senderIdentityId === user?.id; 
     const showAvatar = !isMe && (index === 0 || messages[index - 1]?.senderIdentityId !== item.senderIdentityId);
+    
+    // Fix URL helper
+    const getFullUrl = (path: string) => path?.startsWith('http') ? path : `${API_BASE_URL}${path}`;
 
     return (
       <View style={[styles.messageRow, isMe ? styles.messageRowMe : styles.messageRowOther]}>
@@ -81,7 +201,47 @@ export default function ChatScreen() {
           )}
           
           {item.type === 'image' ? (
-             <Image source={{ uri: item.metadata?.url }} style={styles.messageImage} contentFit="cover" />
+             <Image source={{ uri: getFullUrl(item.metadata?.url) }} style={styles.messageImage} contentFit="cover" />
+          ) : item.type === 'audio' ? (
+             <TouchableOpacity 
+                activeOpacity={0.7}
+                onPress={() => handlePlayAudio(item.metadata?.url, item.id)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, paddingHorizontal: 4, minWidth: 160 }}
+             >
+                 {/* Play/Pause Icon (Minimal) */}
+                 <View style={{ 
+                     width: 32, height: 32, borderRadius: 16, 
+                     backgroundColor: isMe ? 'rgba(0,0,0,0.1)' : '#f0f0f0', 
+                     justifyContent: 'center', alignItems: 'center' 
+                 }}>
+                     <Ionicons 
+                        name={playingId === item.id ? "pause" : "play"} 
+                        size={16} 
+                        color={isMe ? "#000" : "#666"} 
+                     />
+                 </View>
+
+                 {/* Waveform Visualization */}
+                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, height: 24 }}>
+                     {[3, 5, 8, 5, 3, 4, 7, 5, 2].map((h, i) => (
+                         <View 
+                            key={i} 
+                            style={{ 
+                                width: 3, 
+                                height: playingId === item.id ? 12 + Math.random() * 12 : h * 3, // Animate height if playing (mock)
+                                backgroundColor: isMe ? '#000' : '#888',
+                                borderRadius: 1.5,
+                                opacity: 0.7 
+                            }} 
+                         />
+                     ))}
+                 </View>
+                 
+                 {/* Duration (Mock or Real) */}
+                 <Text style={{ fontSize: 10, color: isMe ? 'rgba(0,0,0,0.5)' : '#999', marginLeft: 'auto' }}>
+                     {item.metadata?.duration ? `${Math.floor(item.metadata.duration)}s` : 'Voice'}
+                 </Text>
+             </TouchableOpacity>
           ) : (
              <Text style={[styles.messageText, isMe ? styles.textMe : styles.textOther]}>{item.content}</Text>
           )}
@@ -124,10 +284,7 @@ export default function ChatScreen() {
       ) : (
         <FlatList
           ref={flatListRef}
-          data={messages} // Reversed? API usually returns newest first? Or oldest? 
-          // If API returns newest first (desc), we should invert. 
-          // Let's assume standard chat: Oldest at top (asc) or Newest at bottom.
-          // If API returns standard list, we render normally.
+          data={messages}
           renderItem={renderMessage}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContent}
@@ -143,10 +300,11 @@ export default function ChatScreen() {
         
         <TextInput
           style={styles.input}
-          placeholder="Type a message..."
+          placeholder={recording ? "Recording..." : "Type a message..."}
           value={inputText}
           onChangeText={setInputText}
           multiline
+          editable={!recording}
         />
         
         {inputText.trim() ? (
@@ -154,8 +312,11 @@ export default function ChatScreen() {
             <Ionicons name="send" size={20} color="#fff" />
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.micButton}>
-             <Ionicons name="mic" size={20} color="#666" />
+          <TouchableOpacity 
+            style={[styles.micButton, recording && { backgroundColor: '#ef4444' }]} 
+            onPress={recording ? stopRecording : startRecording}
+          >
+             <Ionicons name={recording ? "stop" : "mic"} size={24} color={recording ? "#fff" : "#666"} />
           </TouchableOpacity>
         )}
       </View>
@@ -187,6 +348,7 @@ const styles = StyleSheet.create({
   textOther: { color: '#000' },
   
   messageImage: { width: 200, height: 200, borderRadius: 8 },
+  audioContainer: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4, paddingHorizontal: 4, minWidth: 140 },
   
   timestamp: { fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
   

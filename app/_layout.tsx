@@ -3,6 +3,8 @@ import { useAuth } from '../hooks/useAuth';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { WebSocketProvider } from '../hooks/useWebSocket';
+import { CallOverlay } from '../components/CallOverlay';
 
 const queryClient = new QueryClient();
 
@@ -28,13 +30,16 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Stack>
-        {isAuthenticated ? (
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        ) : (
-          <Stack.Screen name="login" options={{ headerShown: false }} />
-        )}
-      </Stack>
+      <WebSocketProvider>
+        <CallOverlay />
+        <Stack>
+          {isAuthenticated ? (
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          ) : (
+            <Stack.Screen name="login" options={{ headerShown: false }} />
+          )}
+        </Stack>
+      </WebSocketProvider>
     </QueryClientProvider>
   );
 }

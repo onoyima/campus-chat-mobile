@@ -130,6 +130,14 @@ export const api = {
     const { data } = await apiClient.get('/api/announcements');
     return data;
   },
+
+  async createGroupChat(name: string, participantIds: number[]) {
+    const { data } = await apiClient.post('/api/conversations/group', {
+      name,
+      participantIds,
+    });
+    return data;
+  },
 };
 
 export { apiClient };

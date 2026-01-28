@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, apiClient } from '../../lib/api';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 
 export default function SearchScreen() {
   const { user } = useAuth();
@@ -58,6 +58,19 @@ export default function SearchScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {mode === 'users' && (
+        <TouchableOpacity 
+            style={styles.newGroupBtn} 
+            onPress={() => router.push('/new-group')}
+        >
+            <View style={styles.groupIcon}>
+                <Ionicons name="people" size={20} color="#fff" />
+            </View>
+            <Text style={styles.newGroupText}>New Group Chat</Text>
+            <Ionicons name="chevron-forward" size={18} color="#ccc" />
+        </TouchableOpacity>
+      )}
 
       {mode === 'users' ? (
         <FlatList
@@ -130,4 +143,7 @@ const styles = StyleSheet.create({
   messageRow: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   messageContent: { fontSize: 14, color: '#333', marginBottom: 6 },
   messageMeta: { fontSize: 12, color: '#666' },
+  newGroupBtn: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', backgroundColor: '#fff' },
+  groupIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#25a25a', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  newGroupText: { flex: 1, fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
 });

@@ -1,9 +1,9 @@
-
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { useAuth } from '../../hooks/useAuth';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { router } from 'expo-router';
 
 export default function StatusScreen() {
   const { user } = useAuth();
@@ -16,7 +16,7 @@ export default function StatusScreen() {
   const renderStatus = ({ item }: { item: any }) => (
     <TouchableOpacity style={styles.statusItem}>
       <View style={[styles.avatarRing, item.isViewed ? styles.viewedRing : styles.newRing]}>
-         <Image source={{ uri: `https://api.dicebear.com/7.x/initials/png?seed=${item.identity?.displayName}` }} style={styles.avatar} />
+         <Image source={{ uri: `https://api.dicebear.com/7.x/initials/png?seed=${item.identity?.displayName || 'User'}` }} style={styles.avatar} />
       </View>
       <View style={styles.info}>
         <Text style={styles.name}>{item.identity?.displayName}</Text>
@@ -29,7 +29,7 @@ export default function StatusScreen() {
     <View style={styles.container}>
       {/* My Status */}
       <View style={styles.myStatusContainer}>
-        <TouchableOpacity style={styles.statusItem}>
+        <TouchableOpacity style={styles.statusItem} onPress={() => router.push('/post-status')}>
           <View style={styles.myAvatarContainer}>
             <Image source={{ uri: `https://api.dicebear.com/7.x/initials/png?seed=${user?.username || 'Me'}` }} style={styles.avatar} />
             <View style={styles.addIcon}>
