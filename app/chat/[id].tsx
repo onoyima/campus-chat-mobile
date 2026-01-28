@@ -202,7 +202,7 @@ export default function ChatScreen() {
           
           {item.type === 'image' ? (
              <Image source={{ uri: getFullUrl(item.metadata?.url) }} style={styles.messageImage} contentFit="cover" />
-          ) : item.type === 'audio' ? (
+          ) : item.type === 'audio' && item.metadata?.url ? (
              <TouchableOpacity 
                 activeOpacity={0.7}
                 onPress={() => handlePlayAudio(item.metadata?.url, item.id)}

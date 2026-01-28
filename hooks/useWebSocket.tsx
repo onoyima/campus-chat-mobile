@@ -55,10 +55,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
 
         console.log("Connecting to Mobile WS:", wsUrl);
         
-        const sessionId = await AsyncStorage.getItem('session_id');
-        const options = sessionId ? {
+        const token = await AsyncStorage.getItem('auth_token');
+        const options = token ? {
             headers: {
-                'Cookie': `connect.sid=${encodeURIComponent(sessionId)}`
+                'Authorization': `Bearer ${token}`
             }
         } : undefined;
 

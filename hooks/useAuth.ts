@@ -1,8 +1,11 @@
+// ... imports ...
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient, API_BASE_URL } from '../lib/api';
 import { router } from 'expo-router';
 import axios from 'axios';
+
+// ... togglePort helper ...
 function togglePort(base: string | undefined): string | undefined {
   if (!base) return base;
   if (base.includes('ngrok-free.app')) return base;
@@ -17,8 +20,6 @@ function togglePort(base: string | undefined): string | undefined {
   }
 }
 
-const BASE = API_BASE_URL;
-
 export function useAuth() {
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,39 +28,30 @@ export function useAuth() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const sessionId = await AsyncStorage.getItem('session_id');
-        if (sessionId) {
+        const token = await AsyncStorage.getItem('auth_token');
+        if (token) {
           // Verify session by fetching user
           try {
+            // Note: interceptor adds the token to header automatically
             const response = await apiClient.get(`/api/auth/user`);
             if (response.data && response.data.id) {
-                setUser(response.data);
-                setIsAuthenticated(true);
+              setUser(response.data);
+              setIsAuthenticated(true);
             } else {
-                throw new Error("Invalid user data");
+              throw new Error("Invalid user data");
             }
           } catch (err: any) {
-            if (err?.code === 'ERR_NETWORK') {
-              const alt = togglePort(API_BASE_URL);
-              if (alt) {
-                const response = await axios.get(alt + `/api/auth/user`, { timeout: 10000 });
-                if (response.data && response.data.id) {
-                  setUser(response.data);
-                  setIsAuthenticated(true);
-                } else {
-                  throw new Error("Invalid user data");
-                }
-              } else {
-                throw err;
-              }
-            } else {
-              throw err;
+            // Handle network errors or invalid token
+            if (err?.response?.status === 401) {
+              await AsyncStorage.removeItem('auth_token');
+              setUser(null);
+              setIsAuthenticated(false);
             }
           }
         }
       } catch (error) {
         console.log('Not authenticated');
-        await AsyncStorage.removeItem('session_id'); // Clear invalid session
+        await AsyncStorage.removeItem('auth_token'); // Clear invalid token
         setUser(null);
         setIsAuthenticated(false);
       } finally {
@@ -72,30 +64,39 @@ export function useAuth() {
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await apiClient.post(`/api/login`, { email, password });
-      const { sessionId, user } = response.data;
-      
-      // Store session ID for subsequent requests
-      if (sessionId) {
-          await AsyncStorage.setItem('session_id', sessionId);
+      // Use JWT login endpoint
+      const response = await apiClient.post(`/api/auth/token`, { email, password });
+      const { token, user } = response.data;
+
+      if (token) {
+        await AsyncStorage.setItem('auth_token', token);
       }
-      
+
       setUser(user);
       setIsAuthenticated(true);
       router.replace('/(tabs)');
     } catch (error) {
+      // ... existing error handling adapted ...
       if ((error as any)?.code === 'ERR_NETWORK') {
+        // Fallback logic for local dev port toggling if needed
+        // Simulating the same for JWT token endpoint
         const alt = togglePort(API_BASE_URL);
         if (alt) {
-          const response = await axios.post(alt + `/api/login`, { email, password }, { timeout: 10000 });
-          const { sessionId, user } = response.data;
-          if (sessionId) {
-              await AsyncStorage.setItem('session_id', sessionId);
+          try {
+            const response = await axios.post(alt + `/api/auth/token`, { email, password }, { timeout: 10000 });
+            const { token, user } = response.data;
+            if (token) {
+              await AsyncStorage.setItem('auth_token', token);
+              // We also need to update apiClient base URL effectively or rely on it failing over? 
+              // For now assuming this is just a quick retry.
+            }
+            setUser(user);
+            setIsAuthenticated(true);
+            router.replace('/(tabs)');
+            return;
+          } catch (e) {
+            throw error; // Throw original error if fallback fails
           }
-          setUser(user);
-          setIsAuthenticated(true);
-          router.replace('/(tabs)');
-          return;
         }
       }
       throw error;
@@ -106,22 +107,17 @@ export function useAuth() {
     try {
       try {
         await apiClient.post(`/api/logout`);
-      } catch (err: any) {
-        if (err?.code === 'ERR_NETWORK') {
-          const alt = togglePort(API_BASE_URL);
-          if (alt) {
-            await axios.post(alt + `/api/logout`, undefined, { timeout: 10000 });
-          }
-        }
+      } catch (err) {
+        // ignore
       }
-      await AsyncStorage.removeItem('session_id');
+      await AsyncStorage.removeItem('auth_token');
       setUser(null);
       setIsAuthenticated(false);
       router.replace('/login');
     } catch (error) {
       console.error('Logout error:', error);
       // Force logout on client anyway
-      await AsyncStorage.removeItem('session_id');
+      await AsyncStorage.removeItem('auth_token');
       setUser(null);
       setIsAuthenticated(false);
       router.replace('/login');

@@ -3,27 +3,30 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeModules, Platform } from 'react-native';
 import Constants from 'expo-constants';
 
-function deriveApiBase(): string | undefined {
-  const explicit = process.env.EXPO_PUBLIC_API_URL || (Constants?.expoConfig?.extra as any)?.apiUrl;
-  if (explicit) return explicit;
-  const scriptURL = (NativeModules as any)?.SourceCode?.scriptURL as string | undefined;
-  if (scriptURL) {
-    try {
-      const { hostname } = new URL(scriptURL);
-      const normalizedHost = hostname === '127.0.0.1' || hostname === 'localhost' ? (Constants?.expoConfig?.hostUri?.split(':')[0] || hostname) : hostname;
-      return `http://${normalizedHost}:5000`;
-    } catch {
-      // ignore parse errors
+// Production URL
+const PROD_API_URL = 'https://veritas-uk6l.onrender.com';
+
+function deriveApiBase(): string {
+  // If we are in a development build, try to find local server
+  if (__DEV__) {
+    const explicit = process.env.EXPO_PUBLIC_API_URL || (Constants?.expoConfig?.extra as any)?.apiUrl;
+    if (explicit) return explicit;
+
+    // ... logic for local IP ...
+    const scriptURL = (NativeModules as any)?.SourceCode?.scriptURL as string | undefined;
+    if (scriptURL) {
+      try {
+        const { hostname } = new URL(scriptURL);
+        const normalizedHost = hostname === '127.0.0.1' || hostname === 'localhost' ? (Constants?.expoConfig?.hostUri?.split(':')[0] || hostname) : hostname;
+        return `http://${normalizedHost}:5000`;
+      } catch {
+        // ignore
+      }
     }
   }
-  if (Platform.OS === 'web') {
-    const hostname = typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1';
-    return `http://${hostname}:5000`;
-  }
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:5000';
-  }
-  return 'http://127.0.0.1:5000';
+
+  // Default to production URL
+  return PROD_API_URL;
 }
 
 export const API_BASE_URL = deriveApiBase();
@@ -34,19 +37,17 @@ const apiClient = axios.create({
 });
 
 apiClient.interceptors.request.use(async (config) => {
-  const sessionId = await AsyncStorage.getItem('session_id');
-  if (sessionId) {
-    config.headers.Cookie = `connect.sid=${encodeURIComponent(sessionId)}`;
+  const token = await AsyncStorage.getItem('auth_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
+
   if (Platform.OS === 'web') {
-    config.withCredentials = true;
+    // We don't need credentials for JWT, but keeping it doesn't hurt. 
+    // Actually, for JWT cross-origin, we purely rely on the header.
+    // config.withCredentials = true; 
   }
-  if (API_BASE_URL && API_BASE_URL.includes('ngrok-free.app')) {
-    config.headers['ngrok-skip-browser-warning'] = 'true';
-    if (!config.headers['User-Agent']) {
-      config.headers['User-Agent'] = 'VeritasMobile/1.0';
-    }
-  }
+
   return config;
 });
 
@@ -137,6 +138,24 @@ export const api = {
       participantIds,
     });
     return data;
+  },
+
+  async login(data: any) {
+    const response = await apiClient.post('/api/auth/token', data);
+    const { token } = response.data;
+    if (token) {
+      await AsyncStorage.setItem('auth_token', token);
+    }
+    return response.data;
+  },
+
+  async logout() {
+    await AsyncStorage.removeItem('auth_token');
+    try {
+      await apiClient.post('/api/logout');
+    } catch (e) {
+      // ignore
+    }
   },
 };
 
