@@ -22,6 +22,7 @@ export default function ChatScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [playingId, setPlayingId] = useState<number | null>(null);
+  const [initialScrollDone, setInitialScrollDone] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -30,6 +31,14 @@ export default function ChatScreen() {
       }
     };
   }, [sound]);
+
+  // Mark as Read Effect
+  useEffect(() => {
+    if (conversationId) {
+        api.markChatAsRead(conversationId).catch(console.error);
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    }
+  }, [conversationId]);
 
   // Fetch Conversation Details
   const { data: conversation } = useQuery({
@@ -44,6 +53,44 @@ export default function ChatScreen() {
     queryFn: () => api.getMessages(conversationId),
     enabled: !!conversationId,
   });
+
+  // Find first unread index
+  const firstUnreadIndex = (messages || []).findIndex((msg: any) => 
+    msg.senderIdentityId !== user?.id && 
+    !msg.statuses?.some((s: any) => s.identityId === user?.id && s.status === 'read')
+  );
+
+  // Initial Scroll Logic
+  useEffect(() => {
+    if (!isLoading && messages && messages.length > 0 && !initialScrollDone && flatListRef.current) {
+        setTimeout(() => {
+            if (firstUnreadIndex !== -1) {
+                // Since variable height is hard for scrollToIndex, we try our best 
+                // Alternatively, just scrollToEnd if no unread
+                flatListRef.current?.scrollToIndex({ index: firstUnreadIndex, animated: false, viewPosition: 0 });
+            } else {
+                flatListRef.current?.scrollToEnd({ animated: false });
+            }
+            setInitialScrollDone(true);
+        }, 100);
+    }
+  }, [isLoading, messages, initialScrollDone, firstUnreadIndex]);
+
+  useEffect(() => {
+    setInitialScrollDone(false);
+  }, [conversationId]);
+
+  // Auto-scroll on new message
+  const prevMsgCount = useRef(0);
+  useEffect(() => {
+      if (initialScrollDone && messages && messages.length > prevMsgCount.current) {
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg.senderIdentityId === user?.id) {
+              flatListRef.current?.scrollToEnd({ animated: true });
+          }
+      }
+      prevMsgCount.current = messages?.length || 0;
+  }, [messages?.length, initialScrollDone]);
 
   // Send Message Mutation
   const sendMessageMutation = useMutation({
@@ -246,9 +293,18 @@ export default function ChatScreen() {
              <Text style={[styles.messageText, isMe ? styles.textMe : styles.textOther]}>{item.content}</Text>
           )}
           
-          <Text style={[styles.timestamp, isMe ? styles.textMe : styles.textOther, { opacity: 0.7 }]}>
-            {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
+            <Text style={[styles.timestamp, isMe ? styles.textMe : styles.textOther, { opacity: 0.6, fontSize: 10, marginTop: 0 }]}>
+                {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+            {isMe && (
+                <Ionicons 
+                    name={item.statuses?.some((s: any) => s.identityId !== user?.id && s.status === 'read') ? "checkmark-done" : "checkmark"} 
+                    size={14} 
+                    color={item.statuses?.some((s: any) => s.identityId !== user?.id && s.status === 'read') ? "#3b82f6" : "rgba(255,255,255,0.7)"} 
+                />
+            )}
+          </View>
         </View>
       </View>
     );
@@ -288,8 +344,9 @@ export default function ChatScreen() {
           renderItem={renderMessage}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContent}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          onScrollToIndexFailed={(info) => {
+              flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+          }}
         />
       )}
 

@@ -25,7 +25,13 @@ export default function ChatsScreen() {
     }
 
     const lastMsgDate = item.lastMessage ? new Date(item.lastMessage.createdAt) : null;
-    const timeStr = lastMsgDate ? lastMsgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    let timeStr = '';
+    if (lastMsgDate) {
+      const isToday = lastMsgDate.toDateString() === new Date().toDateString();
+      timeStr = isToday 
+        ? lastMsgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : lastMsgDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
 
     return (
       <Link href={`/chat/${item.id}`} asChild>
@@ -124,7 +130,7 @@ const styles = StyleSheet.create({
   time: { fontSize: 12, color: '#999' },
   chatFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   lastMessage: { fontSize: 14, color: '#666', flex: 1 },
-  unreadBadge: { backgroundColor: '#25a25a', borderRadius: 10, minWidth: 20, height: 20, paddingHorizontal: 6, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
+  unreadBadge: { backgroundColor: '#ef4444', borderRadius: 10, minWidth: 20, height: 20, paddingHorizontal: 6, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
   unreadText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 100, paddingHorizontal: 40 },
   emptyText: { fontSize: 18, fontWeight: 'bold', color: '#666', marginTop: 16 },

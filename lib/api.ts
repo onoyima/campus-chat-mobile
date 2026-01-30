@@ -140,6 +140,11 @@ export const api = {
     return data;
   },
 
+  async markChatAsRead(conversationId: number) {
+    const { data } = await apiClient.post(`/api/conversations/${conversationId}/read`);
+    return data;
+  },
+
   async login(data: any) {
     const response = await apiClient.post('/api/auth/token', data);
     const { token } = response.data;
