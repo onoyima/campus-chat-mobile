@@ -24,11 +24,7 @@ export default function PostStatusScreen() {
       // @ts-ignore
       formData.append('file', { uri, name: filename, type });
 
-      const res = await apiClient.post('/api/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const res = await apiClient.post('/api/upload', formData);
       return res.data;
     },
   });

@@ -152,9 +152,7 @@ export default function ChatScreen() {
     formData.append('file', { uri, name: filename, type });
 
     try {
-        const res = await apiClient.post('/api/upload', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-        });
+        const res = await apiClient.post('/api/upload', formData);
         const { url } = res.data;
         
         // We need to send as explicit type. api.sendMessage only handles text defaulting to 'text'

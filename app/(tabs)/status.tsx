@@ -14,7 +14,18 @@ export default function StatusScreen() {
   });
 
   const renderStatus = ({ item }: { item: any }) => (
-    <TouchableOpacity style={styles.statusItem}>
+    <TouchableOpacity 
+      style={styles.statusItem}
+      onPress={() => router.push({
+        pathname: '/view-status',
+        params: {
+          content: item.content || '',
+          mediaUrl: item.mediaUrl || '',
+          displayName: item.identity?.displayName || 'User',
+          createdAt: item.createdAt
+        }
+      })}
+    >
       <View style={[styles.avatarRing, item.isViewed ? styles.viewedRing : styles.newRing]}>
          <Image source={{ uri: `https://api.dicebear.com/7.x/initials/png?seed=${item.identity?.displayName || 'User'}` }} style={styles.avatar} />
       </View>

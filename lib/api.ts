@@ -3,8 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeModules, Platform } from 'react-native';
 import Constants from 'expo-constants';
 
-// Production URL
-const PROD_API_URL = 'https://veritas-uk6l.onrender.com';
+// Production URL - Update this to match your actual backend deployment
+const PROD_API_URL = 'https://veritas-uk6l.onrender.com'; // TODO: Update to your actual backend URL
 
 function deriveApiBase(): string {
   // If we are in a development build, try to find local server
